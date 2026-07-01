@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM · Follow-up de Rematrícula</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="Style.css"> 
+</head>
+<body>
+
+<!-- ============ TELA DE LOGIN / CADASTRO ============ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="brand"><span class="dot"></span><h1>CRM · Rematrícula</h1></div>
+    <div class="sub">Acesse com sua conta de colaborador</div>
+
+    <div class="auth-tabs">
+      <div class="auth-tab active" data-authtab="login">Entrar</div>
+      <div class="auth-tab" data-authtab="signup">Criar conta</div>
+    </div>
+
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-msg" id="authMsg"></div>
+
+    <form class="auth-form active" id="formLogin">
+      <div class="field"><label>Email</label><input type="email" id="loginEmail" required></div>
+      <div class="field"><label>Senha</label><input type="password" id="loginSenha" required></div>
+      <button type="submit" class="btn-primary">Entrar</button>
+    </form>
+
+    <form class="auth-form" id="formSignup">
+      <div class="field"><label>Seu nome</label><input type="text" id="suNome" required></div>
+      <div class="field"><label>Email</label><input type="email" id="suEmail" required></div>
+      <div class="field"><label>Senha (mín. 6 caracteres)</label><input type="password" id="suSenha" minlength="6" required></div>
+      <button type="submit" class="btn-primary">Criar conta</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ APP (só aparece logado) ============ -->
+<div id="authApp">
+
+<header>
+  <div class="header-top">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <h1>CRM · Follow-up de Rematrícula</h1>
+        <div class="sub">Acompanhamento de contatos por colaborador</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="user-badge">👤 <span id="meNome"></span> <span class="role-chip" id="meRole">user</span></div>
+      <button class="btn-ghost" id="btnManageColab">Equipe</button>
+      <button class="btn-ghost" id="btnExport">Exportar CSV</button>
+      <button class="btn-ghost" id="btnImport">Importar CSV</button>
+      <button class="btn-primary" id="btnAddContact">+ Novo contato</button>
+      <button class="btn-ghost" id="btnLogout">Sair</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="tabs">
+      <button class="tab-btn active" id="tabBoard" data-tab="board">Meu quadro</button>
+      <button class="tab-btn" id="tabTable" data-tab="table">Todos os atendimentos</button>
+      <button class="tab-btn" id="tabChat" data-tab="chat">💬 Chat da equipe</button>
+    </div>
+    <div class="grp">
+      <label>Ver de</label>
+      <select id="selFilterColab"><option value="__todos__">Todos</option></select>
+    </div>
+    <div class="search-box">
+      🔎 <input type="search" id="searchInput" placeholder="Buscar por nome, telefone ou email...">
+    </div>
+  </div>
+</header>
+
+<div class="stats-bar" id="statsBar"></div>
+
+<div id="board"></div>
+<div id="tableWrap" style="display:none;"></div>
+
+<!-- ===== Chat geral da equipe (mural) ===== -->
+<div id="teamChat" style="display:none;">
+  <div id="teamChatMessages"></div>
+  <form id="formTeamChat">
+    <input type="text" id="teamChatInput" placeholder="Escreva uma mensagem para a equipe..." autocomplete="off">
+    <button type="submit" class="btn-primary btn-sm">Enviar</button>
+  </form>
+</div>
+
+</div>
+
+<!-- ===== Modal: Contato (detalhe/edição) ===== -->
+<div class="overlay" id="overlayContact">
+  <div class="modal">
+    <button class="close" data-close="overlayContact">✕</button>
+    <h2 id="cName">Nome</h2>
+    <div class="readonly-banner" id="cReadonlyBanner" style="display:none;">👀 Você pode visualizar este atendimento, mas só o responsável (ou o administrador) pode editá-lo.</div>
+    <div class="contact-links" id="cLinks"></div>
+    <div class="meta-grid" id="cMetaGrid"></div>
+
+    <div class="row-2">
+      <div class="field">
+        <label>Status</label>
+        <select id="cStatus"></select>
+      </div>
+      <div class="field">
+        <label>Responsável</label>
+        <select id="cColab"></select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label>Telefone</label>
+        <input type="tel" id="cPhone">
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="cEmail">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Anotações <span style="font-weight:600;text-transform:none;color:var(--text-soft);">(ao vivo)</span></label>
+      <div class="notes-list" id="notesList"></div>
+      <div id="noteAddBox">
+        <textarea id="noteInput" placeholder="Escreva uma anotação sobre esse contato..."></textarea>
+        <div style="margin-top:6px;">
+          <button class="btn-primary btn-sm" id="btnAddNote">Adicionar anotação</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions" id="cActions">
+      <button class="btn-danger btn-sm" id="btnDeleteContact">Excluir contato</button>
+      <button class="btn-primary btn-sm" id="btnSaveContact">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: Novo contato ===== -->
+<div class="overlay" id="overlayNew">
+  <div class="modal">
+    <button class="close" data-close="overlayNew">✕</button>
+    <h2>Novo contato</h2>
+    <div class="field"><label>Nome *</label><input type="text" id="nNome"></div>
+    <div class="row-2">
+      <div class="field"><label>Telefone</label><input type="tel" id="nFone" placeholder="(47) 99999-9999"></div>
+      <div class="field"><label>Email</label><input type="email" id="nEmail"></div>
+    </div>
+    <div class="field">
+      <label>Responsável</label>
+      <select id="nColab"></select>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-end;">
+      <button class="btn-primary" id="btnSaveNew">Adicionar contato</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: Importar CSV ===== -->
+<div class="overlay" id="overlayImport">
+  <div class="modal">
+    <button class="close" data-close="overlayImport">✕</button>
+    <h2>Importar planilha (CSV)</h2>
+    <p style="font-size:12.5px;color:var(--text-soft);margin-top:0;">
+      Aceita arquivos exportados do Excel/Sheets (CSV separado por vírgula, ponto-e-vírgula ou tabulação).
+      As colunas de nome, telefone/email são detectadas automaticamente — inclusive planilhas no formato
+      <b>NOME_ALUNO / FONE / EMAIL</b>.
+    </p>
+    <div class="field">
+      <label>Atribuir contatos importados a</label>
+      <select id="iColab"></select>
+    </div>
+    <div class="field">
+      <label>Arquivo CSV</label>
+      <input type="file" id="iFile" accept=".csv,.txt,.tsv">
+    </div>
+    <div id="importSummary" style="font-size:12.5px;"></div>
+  </div>
+</div>
+
+<!-- ===== Modal: Equipe ===== -->
+<div class="overlay" id="overlayColab">
+  <div class="modal">
+    <button class="close" data-close="overlayColab">✕</button>
+    <h2>Equipe</h2>
+    <p style="font-size:12.5px;color:var(--text-soft);margin-top:0;">Colaboradores cadastrados no sistema e quantos atendimentos cada um possui.</p>
+    <div id="colabList" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="Script.js"></script>
+</body>
+</html>
