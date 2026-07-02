@@ -3,11 +3,12 @@
 
   // ================= CONFIGURAÇÃO DO SUPABASE =================
   // Troque pelos dados do SEU projeto (Supabase > Project Settings > API)
-const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtoY3VyaHJ1bXlpaXl2ZGFhbXFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3NjMwMzYsImV4cCI6MjA5NDMzOTAzNn0.Pw0UJUVs5Qzvc3cz-Z_h_Q09H8nS5H4s8L9i_YHQkqI';  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtoY3VyaHJ1bXlpaXl2ZGFhbXFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3NjMwMzYsImV4cCI6MjA5NDMzOTAzNn0.Pw0UJUVs5Qzvc3cz-Z_h_Q09H8nS5H4s8L9i_YHQkqI';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   // ===============================================================
 
-  // ---------- Config de status ----------
+  // ---------- Config de status (workflow interno do CRM) ----------
   const STATUS_COLS = [
     { id: 'nao_contatado',      label: 'Não Contatado',              color: '#9CA3AF' },
     { id: 'contato_realizado',  label: 'Contato Realizado',          color: '#3B82F6' },
@@ -203,7 +204,11 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
     const { error } = await sb.from('messages').insert({
       autor_id: state.profile.id, autor_nome: state.profile.nome, texto: texto
     });
-    if (error) { showToast('Não foi possível enviar a mensagem.'); return false; }
+    if (error) {
+      showToast('Não foi possível enviar a mensagem: ' + error.message);
+      console.error('sendTeamMessage error:', error);
+      return false;
+    }
     return true;
   }
 
@@ -224,14 +229,21 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
   function subscribeTeamChat() {
     sb.channel('team-chat')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, function (payload) {
-        state.messages.push(payload.new);
+        const exists = state.messages.some(function (m) { return m.id === payload.new.id; });
+        if (!exists) state.messages.push(payload.new);
         renderTeamChat();
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, function (payload) {
         state.messages = state.messages.filter(function (m) { return m.id !== payload.old.id; });
         renderTeamChat();
       })
-      .subscribe();
+      .subscribe(function (status, err) {
+        // Se a tabela "messages" não estiver com Realtime habilitado no Supabase,
+        // ou o RLS bloquear SELECT, o status virá diferente de "SUBSCRIBED".
+        if (status !== 'SUBSCRIBED') {
+          console.warn('[team-chat] status da assinatura realtime:', status, err || '');
+        }
+      });
   }
 
   // ---------- Notas ao vivo (realtime por contato aberto) ----------
@@ -285,7 +297,10 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
     return true;
   }
 
-  // ---------- CSV parsing (mesma lógica de antes) ----------
+  // ================= IMPORTAÇÃO (CSV e XLSX) =================
+  // Ambos os formatos convergem para a mesma matriz [cabecalho, ...linhas]
+  // e passam pelo mesmo mapeamento de colunas (buildRowsFromMatrix).
+
   function detectDelimiter(headerLine) {
     const candidates = ['\t', ';', ','];
     let best = ',', bestCount = -1;
@@ -310,9 +325,14 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
     return result.map(function (s) { return s.trim(); });
   }
   function normalizeHeader(h) {
-    return h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+    return String(h || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
       .replace(/[^A-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
   }
+
+  // Aliases de cabeçalho reconhecidos. "status_origem" cobre a coluna "STATUS"
+  // da planilha de renovação (ex.: "Não Renovado") — é a situação de origem do
+  // aluno, e é guardada em contacts.meta.status_origem. Ela NÃO substitui o
+  // status de workflow do quadro (esse sempre começa como "nao_contatado").
   const HEADER_ALIASES = {
     nome: ['NOME_ALUNO', 'NOME', 'ALUNO', 'CLIENTE', 'NAME'],
     telefone: ['FONE', 'TELEFONE', 'CELULAR', 'WHATSAPP', 'PHONE', 'TEL'],
@@ -321,6 +341,7 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
     polo: ['NOME_POLO', 'POLO'],
     tipo: ['TIPO'],
     status_aluno: ['STATUS_ALUNO'],
+    status_origem: ['STATUS', 'SITUACAO', 'SITUACAO_MATRICULA', 'SITUACAO_ATUAL'],
     turma: ['TURMA'],
     codigo_aluno: ['CODIGO_ALUNO', 'CODIGO', 'MATRICULA']
   };
@@ -335,53 +356,105 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
     });
     return map;
   }
+
+  // Monta os objetos "row" a partir de uma matriz genérica [header, ...linhas].
+  // Usado tanto pelo caminho CSV quanto pelo caminho XLSX.
+  function buildRowsFromMatrix(headerRow, dataRows) {
+    const map = mapHeaders(headerRow || []);
+    if (map.nome === undefined || (map.telefone === undefined && map.email === undefined)) {
+      return { rows: [], map: map, error: 'Não encontrei colunas de nome e telefone/email no arquivo.' };
+    }
+    const get = function (cols, idx) {
+      if (idx === undefined) return '';
+      const v = cols[idx];
+      return (v === undefined || v === null) ? '' : String(v).trim();
+    };
+    const rows = [];
+    (dataRows || []).forEach(function (cols) {
+      if (!cols || cols.length === 0) return;
+      const row = {
+        nome: get(cols, map.nome),
+        telefone: get(cols, map.telefone),
+        email: get(cols, map.email),
+        curso: get(cols, map.curso),
+        polo: get(cols, map.polo),
+        tipo: get(cols, map.tipo),
+        status_aluno: get(cols, map.status_aluno),
+        status_origem: get(cols, map.status_origem),
+        turma: get(cols, map.turma),
+        codigo_aluno: get(cols, map.codigo_aluno)
+      };
+      if (row.nome) rows.push(row);
+    });
+    return { rows: rows, map: map, error: null };
+  }
+
   function parseCSV(text) {
     const lines = text.split(/\r\n|\n|\r/).filter(function (l) { return l.trim().length > 0; });
     if (lines.length === 0) return { rows: [], map: {}, error: 'Arquivo vazio.' };
     const delim = detectDelimiter(lines[0]);
-    const headers = parseCSVLine(lines[0], delim);
-    const map = mapHeaders(headers);
-    if (map.nome === undefined || (map.telefone === undefined && map.email === undefined)) {
-      return { rows: [], map: map, error: 'Não encontrei colunas de nome e telefone/email no CSV.' };
-    }
-    const rows = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCSVLine(lines[i], delim);
-      if (cols.length < 2) continue;
-      const row = {
-        nome: map.nome !== undefined ? cols[map.nome] : '',
-        telefone: map.telefone !== undefined ? cols[map.telefone] : '',
-        email: map.email !== undefined ? cols[map.email] : '',
-        curso: map.curso !== undefined ? cols[map.curso] : '',
-        polo: map.polo !== undefined ? cols[map.polo] : '',
-        tipo: map.tipo !== undefined ? cols[map.tipo] : '',
-        status_aluno: map.status_aluno !== undefined ? cols[map.status_aluno] : '',
-        turma: map.turma !== undefined ? cols[map.turma] : '',
-        codigo_aluno: map.codigo_aluno !== undefined ? cols[map.codigo_aluno] : ''
-      };
-      if (row.nome) rows.push(row);
-    }
-    return { rows: rows, map: map, error: null };
+    const headerRow = parseCSVLine(lines[0], delim);
+    const dataRows = lines.slice(1).map(function (line) { return parseCSVLine(line, delim); });
+    return buildRowsFromMatrix(headerRow, dataRows);
   }
+
+  // Carrega o SheetJS (biblioteca "xlsx") sob demanda, só quando o usuário
+  // realmente importa um arquivo .xlsx/.xls — evita peso extra no carregamento inicial.
+  function ensureXLSXLib() {
+    return new Promise(function (resolve, reject) {
+      if (window.XLSX) { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error('Não foi possível carregar o leitor de XLSX. Verifique sua conexão.')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function parseXLSX(arrayBuffer) {
+    await ensureXLSXLib();
+    const wb = window.XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = wb.SheetNames[0];
+    if (!firstSheetName) return { rows: [], map: {}, error: 'A planilha não tem nenhuma aba.' };
+    const sheet = wb.Sheets[firstSheetName];
+    // header:1 => matriz de arrays (não objetos), preservando a ordem das colunas
+    const matrix = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: false });
+    if (!matrix.length) return { rows: [], map: {}, error: 'Planilha vazia.' };
+    const headerRow = matrix[0];
+    const dataRows = matrix.slice(1);
+    return buildRowsFromMatrix(headerRow, dataRows);
+  }
+
   async function importRows(rows, colaboradorId) {
     let added = 0, skipped = 0;
     const existingKeys = {};
     state.contacts.forEach(function (c) {
       if (c.telefone) existingKeys['t:' + onlyDigits(c.telefone)] = true;
       if (c.email) existingKeys['e:' + c.email.toLowerCase()] = true;
+      if (c.meta && c.meta.codigo_aluno) existingKeys['c:' + String(c.meta.codigo_aluno)] = true;
     });
     const toInsert = [];
     rows.forEach(function (r) {
       const tKey = r.telefone ? 't:' + onlyDigits(r.telefone) : null;
       const eKey = r.email ? 'e:' + r.email.toLowerCase() : null;
-      if ((tKey && existingKeys[tKey]) || (eKey && existingKeys[eKey])) { skipped++; return; }
+      const cKey = r.codigo_aluno ? 'c:' + r.codigo_aluno : null;
+      if ((tKey && existingKeys[tKey]) || (eKey && existingKeys[eKey]) || (cKey && existingKeys[cKey])) { skipped++; return; }
       toInsert.push({
         nome: r.nome, telefone: r.telefone || null, email: r.email || null,
         status: 'nao_contatado', colaborador_id: colaboradorId || null,
-        meta: { curso: r.curso || '', polo: r.polo || '', tipo: r.tipo || '', status_aluno: r.status_aluno || '', turma: r.turma || '', codigo_aluno: r.codigo_aluno || '' }
+        meta: {
+          curso: r.curso || '',
+          polo: r.polo || '',
+          tipo: r.tipo || '',
+          status_aluno: r.status_aluno || '',
+          status_origem: r.status_origem || '',
+          turma: r.turma || '',
+          codigo_aluno: r.codigo_aluno || ''
+        }
       });
       if (tKey) existingKeys[tKey] = true;
       if (eKey) existingKeys[eKey] = true;
+      if (cKey) existingKeys[cKey] = true;
       added++;
     });
     if (toInsert.length) {
@@ -442,6 +515,7 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
     let tags = '';
     if (c.meta && c.meta.curso) tags += '<span class="tag">' + esc(c.meta.curso) + '</span>';
     if (c.meta && c.meta.tipo) tags += '<span class="tag gray">' + esc(c.meta.tipo) + '</span>';
+    if (c.meta && c.meta.status_origem) tags += '<span class="tag gray">' + esc(c.meta.status_origem) + '</span>';
     const colabTag = '<span class="tag gray">👤 ' + esc(colabName(c.colaborador_id)) + '</span>';
     const statusOptions = STATUS_COLS.map(function (st) {
       return '<option value="' + st.id + '"' + (st.id === c.status ? ' selected' : '') + '>' + esc(st.label) + '</option>';
@@ -586,7 +660,15 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
 
     const m = c.meta || {};
     let metaHTML = '';
-    [['Curso', m.curso], ['Polo', m.polo], ['Tipo', m.tipo], ['Status aluno', m.status_aluno], ['Turma', m.turma], ['Código', m.codigo_aluno]].forEach(function (pair) {
+    [
+      ['Curso', m.curso],
+      ['Polo', m.polo],
+      ['Tipo', m.tipo],
+      ['Situação de origem', m.status_origem],
+      ['Status aluno', m.status_aluno],
+      ['Turma', m.turma],
+      ['Código', m.codigo_aluno]
+    ].forEach(function (pair) {
       if (pair[1]) metaHTML += '<div><b>' + pair[0] + ':</b> ' + esc(pair[1]) + '</div>';
     });
     metaHTML += '<div><b>Criado em:</b> ' + fmtDate(c.criado_em) + '</div>';
@@ -644,7 +726,17 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
       const txt = input.value.trim();
       if (!txt) return;
       input.value = '';
-      await sendTeamMessage(txt);
+      const before = state.messages.length;
+      const ok = await sendTeamMessage(txt);
+      if (ok) {
+        // Fallback: se o Realtime não estiver habilitado na tabela "messages"
+        // (Database > Replication no Supabase), o INSERT nunca chega de volta
+        // pelo canal "team-chat" e a mensagem "some". Isso recarrega na marra
+        // depois de um tempo curto, caso o evento realtime não tenha chegado.
+        setTimeout(async function () {
+          if (state.messages.length === before) await loadMessages();
+        }, 1200);
+      }
     });
 
     document.getElementById('selFilterColab').addEventListener('change', function () {
@@ -726,7 +818,7 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
       }
     });
 
-    // Import CSV modal
+    // Import CSV/XLSX modal
     document.getElementById('btnImport').addEventListener('click', function () {
       document.getElementById('importSummary').textContent = '';
       document.getElementById('iFile').value = '';
@@ -738,22 +830,49 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
     document.getElementById('iFile').addEventListener('change', function (e) {
       const file = e.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async function (ev) {
-        const result = parseCSV(ev.target.result);
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const colab = isAdmin() ? (document.getElementById('iColab').value || null) : state.profile.id;
+      const summaryEl = document.getElementById('importSummary');
+
+      async function finishImport(result) {
         if (result.error) {
-          document.getElementById('importSummary').innerHTML = '<span style="color:#DC2626;">' + esc(result.error) + '</span>';
+          summaryEl.innerHTML = '<span style="color:#DC2626;">' + esc(result.error) + '</span>';
           return;
         }
-        const colab = isAdmin() ? (document.getElementById('iColab').value || null) : state.profile.id;
         const r = await importRows(result.rows, colab);
-        document.getElementById('importSummary').innerHTML =
+        summaryEl.innerHTML =
           '<span style="color:#059669;">' + r.added + ' contato(s) importado(s).</span>' +
           (r.skipped ? ' <span style="color:#6B7280;">' + r.skipped + ' duplicado(s) ignorado(s).</span>' : '');
         await loadContactsAndNotes();
         showToast(r.added + ' contato(s) importado(s) com sucesso.');
-      };
-      reader.readAsText(file, 'UTF-8');
+      }
+
+      if (ext === 'xlsx' || ext === 'xls') {
+        summaryEl.textContent = 'Lendo planilha...';
+        const reader = new FileReader();
+        reader.onload = async function (ev) {
+          try {
+            const result = await parseXLSX(ev.target.result);
+            await finishImport(result);
+          } catch (err) {
+            summaryEl.innerHTML = '<span style="color:#DC2626;">' + esc(err.message || 'Erro ao ler o XLSX.') + '</span>';
+          }
+        };
+        reader.onerror = function () {
+          summaryEl.innerHTML = '<span style="color:#DC2626;">Não foi possível ler o arquivo.</span>';
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = async function (ev) {
+          const result = parseCSV(ev.target.result);
+          await finishImport(result);
+        };
+        reader.onerror = function () {
+          summaryEl.innerHTML = '<span style="color:#DC2626;">Não foi possível ler o arquivo.</span>';
+        };
+        reader.readAsText(file, 'UTF-8');
+      }
     });
 
     // Equipe modal
@@ -780,11 +899,15 @@ const SUPABASE_URL = 'https://khcurhrumyiiyvdaamqg.supabase.co';
 
   function exportCSV() {
     const list = state.activeTab === 'board' ? applyFilters(baseListForBoard()) : applyFilters(state.contacts);
-    const rows = [['Nome', 'Telefone', 'Email', 'Status', 'Responsavel', 'Curso', 'Polo', 'Tipo', 'Ultima_Atualizacao', 'Anotacoes']];
+    const rows = [['Nome', 'Telefone', 'Email', 'Status', 'Responsavel', 'Curso', 'Polo', 'Tipo', 'Situacao_Origem', 'Ultima_Atualizacao', 'Anotacoes']];
     list.forEach(function (c) {
       const statusLabel = (STATUS_MAP[c.status] || {}).label || c.status;
       const notas = (c.notas || []).map(function (n) { return n.texto; }).join(' | ');
-      rows.push([c.nome, c.telefone, c.email, statusLabel, colabName(c.colaborador_id), c.meta && c.meta.curso, c.meta && c.meta.polo, c.meta && c.meta.tipo, fmtDate(c.atualizado_em), notas]);
+      rows.push([
+        c.nome, c.telefone, c.email, statusLabel, colabName(c.colaborador_id),
+        c.meta && c.meta.curso, c.meta && c.meta.polo, c.meta && c.meta.tipo,
+        c.meta && c.meta.status_origem, fmtDate(c.atualizado_em), notas
+      ]);
     });
     const csv = rows.map(function (r) {
       return r.map(function (cell) {
