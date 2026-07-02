@@ -4,15 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CRM · Follow-up de Rematrícula</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="Style.css"> 
+<link rel="stylesheet" href="Style.css">
 </head>
 <body>
 
 <!-- ============ TELA DE LOGIN / CADASTRO ============ -->
 <div id="authScreen">
   <div class="auth-card">
-    <div class="brand"><span class="dot"></span><h1>CRM · Rematrícula</h1></div>
+    <div class="brand"><span class="logo-mark">R</span><h1>CRM · Rematrícula</h1></div>
     <div class="sub">Acesse com sua conta de colaborador</div>
 
     <div class="auth-tabs">
@@ -40,56 +42,92 @@
 
 <!-- ============ APP (só aparece logado) ============ -->
 <div id="authApp">
+<div id="shell">
 
-<header>
-  <div class="header-top">
+  <!-- ---------- Barra superior ---------- -->
+  <div id="topbar">
     <div class="brand">
-      <span class="dot"></span>
-      <div>
-        <h1>CRM · Follow-up de Rematrícula</h1>
-        <div class="sub">Acompanhamento de contatos por colaborador</div>
-      </div>
-    </div>
-    <div class="header-actions">
-      <div class="user-badge">👤 <span id="meNome"></span> <span class="role-chip" id="meRole">user</span></div>
-      <button class="btn-ghost" id="btnManageColab">Equipe</button>
-      <button class="btn-ghost" id="btnExport">Exportar CSV</button>
-      <button class="btn-ghost" id="btnImport">Importar CSV</button>
-      <button class="btn-primary" id="btnAddContact">+ Novo contato</button>
-      <button class="btn-ghost" id="btnLogout">Sair</button>
-    </div>
-  </div>
-
-  <div class="toolbar">
-    <div class="tabs">
-      <button class="tab-btn active" id="tabBoard" data-tab="board">Meu quadro</button>
-      <button class="tab-btn" id="tabTable" data-tab="table">Todos os atendimentos</button>
-      <button class="tab-btn" id="tabChat" data-tab="chat">💬 Chat da equipe</button>
-    </div>
-    <div class="grp">
-      <label>Ver de</label>
-      <select id="selFilterColab"><option value="__todos__">Todos</option></select>
+      <span class="logo-mark">R</span>
+      <span class="topbar-word">CRM · Rematrícula</span>
     </div>
     <div class="search-box">
-      🔎 <input type="search" id="searchInput" placeholder="Buscar por nome, telefone ou email...">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input type="search" id="searchInput" placeholder="Buscar por nome, telefone ou email...">
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="header-actions">
+      <div class="user-badge">
+        <span class="avatar" id="meAvatar">·</span>
+        <div>
+          <div class="name" id="meNome"></div>
+          <span class="role-chip" id="meRole">user</span>
+        </div>
+      </div>
+      <button class="btn-ghost btn-sm" id="btnLogout">Sair</button>
     </div>
   </div>
-</header>
 
-<div class="stats-bar" id="statsBar"></div>
+  <div id="body-row">
 
-<div id="board"></div>
-<div id="tableWrap" style="display:none;"></div>
+    <!-- ---------- Trilho de ícones ---------- -->
+    <div id="rail">
+      <button class="rail-btn" id="btnManageColab" title="Equipe">
+        <span class="tip">Equipe</span>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="9" r="3"/><circle cx="17" cy="9" r="3"/><path d="M2 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M13 14.7c2.9.3 5 2.4 5 5.3"/></svg>
+      </button>
+      <button class="rail-btn" id="btnImport" title="Importar CSV">
+        <span class="tip">Importar CSV</span>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+      </button>
+      <button class="rail-btn" id="btnExport" title="Exportar CSV">
+        <span class="tip">Exportar CSV</span>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+      </button>
+      <div class="rail-spacer"></div>
+    </div>
 
-<!-- ===== Chat geral da equipe (mural) ===== -->
-<div id="teamChat" style="display:none;">
-  <div id="teamChatMessages"></div>
-  <form id="formTeamChat">
-    <input type="text" id="teamChatInput" placeholder="Escreva uma mensagem para a equipe..." autocomplete="off">
-    <button type="submit" class="btn-primary btn-sm">Enviar</button>
-  </form>
+    <!-- ---------- Painel lateral ---------- -->
+    <div id="sidebar">
+      <h1 id="sidebarTitle">Minha área</h1>
+      <div class="sub">Acompanhamento de rematrícula</div>
+
+      <div class="sb-section-label">Visão</div>
+      <div class="tabs-vertical">
+        <button class="tab-btn active" id="tabBoard" data-tab="board">Meu quadro</button>
+        <button class="tab-btn" id="tabTable" data-tab="table">Todos os atendimentos</button>
+        <button class="tab-btn" id="tabChat" data-tab="chat">💬 Chat da equipe</button>
+      </div>
+
+      <div class="sb-section-label">Ver de</div>
+      <select id="selFilterColab" class="sidebar-select"><option value="__todos__">Todos</option></select>
+    </div>
+
+    <!-- ---------- Conteúdo principal ---------- -->
+    <div id="main">
+      <div class="page-head">
+        <div>
+          <h2>Follow-up de Rematrícula</h2>
+          <p>Acompanhamento de contatos por colaborador</p>
+        </div>
+        <button class="btn-primary" id="btnAddContact">+ Novo contato</button>
+      </div>
+
+      <div class="stats-bar" id="statsBar"></div>
+
+      <div id="board"></div>
+      <div id="tableWrap" style="display:none;"></div>
+
+      <!-- ===== Chat geral da equipe (mural) ===== -->
+      <div id="teamChat" style="display:none;">
+        <div id="teamChatMessages"></div>
+        <form id="formTeamChat">
+          <input type="text" id="teamChatInput" placeholder="Escreva uma mensagem para a equipe..." autocomplete="off">
+          <button type="submit" class="btn-primary btn-sm">Enviar</button>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
-
 </div>
 
 <!-- ===== Modal: Contato (detalhe/edição) ===== -->
@@ -123,7 +161,7 @@
     </div>
 
     <div class="field">
-      <label>Anotações <span style="font-weight:600;text-transform:none;color:var(--text-soft);">(ao vivo)</span></label>
+      <label>Anotações <span class="label-hint">(ao vivo)</span></label>
       <div class="notes-list" id="notesList"></div>
       <div id="noteAddBox">
         <textarea id="noteInput" placeholder="Escreva uma anotação sobre esse contato..."></textarea>
@@ -165,7 +203,7 @@
   <div class="modal">
     <button class="close" data-close="overlayImport">✕</button>
     <h2>Importar planilha (CSV)</h2>
-    <p style="font-size:12.5px;color:var(--text-soft);margin-top:0;">
+    <p class="modal-hint">
       Aceita arquivos exportados do Excel/Sheets (CSV separado por vírgula, ponto-e-vírgula ou tabulação).
       As colunas de nome, telefone/email são detectadas automaticamente — inclusive planilhas no formato
       <b>NOME_ALUNO / FONE / EMAIL</b>.
@@ -178,7 +216,7 @@
       <label>Arquivo CSV</label>
       <input type="file" id="iFile" accept=".csv,.txt,.tsv">
     </div>
-    <div id="importSummary" style="font-size:12.5px;"></div>
+    <div id="importSummary" class="import-summary"></div>
   </div>
 </div>
 
@@ -187,8 +225,8 @@
   <div class="modal">
     <button class="close" data-close="overlayColab">✕</button>
     <h2>Equipe</h2>
-    <p style="font-size:12.5px;color:var(--text-soft);margin-top:0;">Colaboradores cadastrados no sistema e quantos atendimentos cada um possui.</p>
-    <div id="colabList" style="display:flex;flex-direction:column;gap:6px;"></div>
+    <p class="modal-hint">Colaboradores cadastrados no sistema e quantos atendimentos cada um possui.</p>
+    <div id="colabList" class="colab-list"></div>
   </div>
 </div>
 
